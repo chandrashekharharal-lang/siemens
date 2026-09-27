@@ -1,0 +1,70 @@
+#include <Arduino.h>
+#include <TM1637Display.h>
+
+// Sensor & Relay Pins
+const int SENSOR_LOW = D1;  
+const int SENSOR_HIGH = D2; 
+const int RELAY_PIN = D5;   
+
+// Relay Logic (Active LOW Relay)
+const int RELAY_ON = LOW;
+const int RELAY_OFF = HIGH;
+
+// TM1637 Display Pins
+const int CLK = D6;
+const int DIO = D7;
+TM1637Display display(CLK, DIO);
+
+// Display Pattern for "ON" (2 Digits: O, n)
+const uint8_t MSG_ON[] = {
+  SEG_A | SEG_B | SEG_C | SEG_D | SEG_E | SEG_F, // O
+  SEG_C | SEG_E | SEG_G                         // n
+};
+
+// Display Pattern for "OFF" (3 Digits: o, F, F)
+const uint8_t MSG_OFF[] = {
+  SEG_C | SEG_D | SEG_E | SEG_G,                // o
+  SEG_A | SEG_E | SEG_F | SEG_G,                // F
+  SEG_A | SEG_E | SEG_F | SEG_G                 // F
+};
+
+// Clear Display Pattern
+const uint8_t MSG_CLEAR[] = { 0x00, 0x00, 0x00, 0x00 };
+
+void setup() {
+  Serial.begin(115200);
+
+  // Pin Modes
+  pinMode(SENSOR_LOW, INPUT_PULLUP);
+  pinMode(SENSOR_HIGH, INPUT_PULLUP);
+  pinMode(RELAY_PIN, OUTPUT);
+
+  // सुरुवातीला रिले बंद ठेवणे
+  digitalWrite(RELAY_PIN, RELAY_OFF); 
+
+  // डिस्प्ले सेटिंग
+  display.setBrightness(0x07);
+  display.setSegments(MSG_CLEAR);
+}
+
+void loop() {
+  bool lowSensor = digitalRead(SENSOR_LOW);
+  bool highSensor = digitalRead(SENSOR_HIGH);
+
+  // पाणी कमी असल्यास (Low Sensor ट्रिगर) -> Motor चालू (ON)
+  if (lowSensor == HIGH) {
+    digitalWrite(RELAY_PIN, RELAY_ON);
+    display.setSegments(MSG_CLEAR);
+    display.setSegments(MSG_ON, 2, 2); // शेवटच्या २ डिजिटवर 'ON' दिसेल
+    Serial.println("Action: Pump Started (ON)");
+  }
+  // टाकी भरल्यास (दोन्ही सेन्सर्स पाण्यात बुडाल्यास) -> Motor बंद (OFF)
+  else if (lowSensor == LOW && highSensor == LOW) {
+    digitalWrite(RELAY_PIN, RELAY_OFF);
+    display.setSegments(MSG_CLEAR);
+    display.setSegments(MSG_OFF, 3, 1); // २, ३, ४ नंबर डिजिटवर 'oFF' दिसेल
+    Serial.println("Action: Pump Stopped (OFF)");
+  }
+
+  delay(500); 
+}
