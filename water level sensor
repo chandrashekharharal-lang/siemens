@@ -1,10 +1,11 @@
 #include <Arduino.h>
 #include <TM1637Display.h>
 
-// Sensor & Relay Pins
+// Sensor, Relay & LED Pins
 const int SENSOR_LOW = D1;  
 const int SENSOR_HIGH = D2; 
 const int RELAY_PIN = D5;   
+const int EMPTY_LED_PIN = D0; // टाकी रिकामी असताना ब्लिंक होणारा LED
 
 // Relay Logic (Active LOW Relay)
 const int RELAY_ON = LOW;
@@ -18,18 +19,21 @@ TM1637Display display(CLK, DIO);
 // Display Pattern for "ON" (2 Digits: O, n)
 const uint8_t MSG_ON[] = {
   SEG_A | SEG_B | SEG_C | SEG_D | SEG_E | SEG_F, // O
-  SEG_C | SEG_E | SEG_G                         // n
+  SEG_C | SEG_E | SEG_G                          // n
 };
 
 // Display Pattern for "OFF" (3 Digits: o, F, F)
 const uint8_t MSG_OFF[] = {
-  SEG_C | SEG_D | SEG_E | SEG_G,                // o
-  SEG_A | SEG_E | SEG_F | SEG_G,                // F
-  SEG_A | SEG_E | SEG_F | SEG_G                 // F
+  SEG_C | SEG_D | SEG_E | SEG_G,                 // o
+  SEG_A | SEG_E | SEG_F | SEG_G,                 // F
+  SEG_A | SEG_E | SEG_F | SEG_G                  // F
 };
 
 // Clear Display Pattern
 const uint8_t MSG_CLEAR[] = { 0x00, 0x00, 0x00, 0x00 };
+
+bool ledState = LOW;        // LED ब्लिंक करण्यासाठी स्टेट
+int currentPumpState = -1;  // डिस्प्ले सारखा ब्लिंक होऊ नये म्हणून
 
 void setup() {
   Serial.begin(115200);
@@ -38,32 +42,52 @@ void setup() {
   pinMode(SENSOR_LOW, INPUT_PULLUP);
   pinMode(SENSOR_HIGH, INPUT_PULLUP);
   pinMode(RELAY_PIN, OUTPUT);
+  pinMode(EMPTY_LED_PIN, OUTPUT);
 
-  // सुरुवातीला रिले बंद ठेवणे
+  // सुरुवातीला रिले आणि LED बंद ठेवणे
   digitalWrite(RELAY_PIN, RELAY_OFF); 
+  digitalWrite(EMPTY_LED_PIN, LOW);
 
   // डिस्प्ले सेटिंग
   display.setBrightness(0x07);
   display.setSegments(MSG_CLEAR);
+  display.setSegments(MSG_OFF, 3, 1); // सुरुवातीला 'oFF' दाखवा
 }
 
 void loop() {
   bool lowSensor = digitalRead(SENSOR_LOW);
   bool highSensor = digitalRead(SENSOR_HIGH);
 
-  // पाणी कमी असल्यास (Low Sensor ट्रिगर) -> Motor चालू (ON)
-  if (lowSensor == HIGH) {
-    digitalWrite(RELAY_PIN, RELAY_ON);
-    display.setSegments(MSG_CLEAR);
-    display.setSegments(MSG_ON, 2, 2); // शेवटच्या २ डिजिटवर 'ON' दिसेल
-    Serial.println("Action: Pump Started (ON)");
+  // १. पाणी कमी असल्यास (टाकी रिकामी: Low Sensor पाण्याबाहेर)
+  if (lowSensor == HIGH && highSensor == HIGH) {
+    // पंप चालू करा (फक्त एकदाच डिस्प्ले अपडेट होईल)
+    if (currentPumpState != 1) {
+      digitalWrite(RELAY_PIN, RELAY_ON);
+      display.setSegments(MSG_CLEAR);
+      display.setSegments(MSG_ON, 2, 2); // शेवटच्या २ डिजिटवर 'ON' दिसेल
+      Serial.println("Action: Tank Empty - Pump Started (ON)");
+      currentPumpState = 1;
+    }
+
+    // टाकी रिकामी असेपर्यंत दर 500ms ला LED ब्लिंक करा
+    ledState = !ledState;
+    digitalWrite(EMPTY_LED_PIN, ledState);
   }
-  // टाकी भरल्यास (दोन्ही सेन्सर्स पाण्यात बुडाल्यास) -> Motor बंद (OFF)
-  else if (lowSensor == LOW && highSensor == LOW) {
-    digitalWrite(RELAY_PIN, RELAY_OFF);
-    display.setSegments(MSG_CLEAR);
-    display.setSegments(MSG_OFF, 3, 1); // २, ३, ४ नंबर डिजिटवर 'oFF' दिसेल
-    Serial.println("Action: Pump Stopped (OFF)");
+  // २. पाणी Low Sensor च्या वर आल्यास LED ब्लिंक होणे थांबवा
+  else {
+    digitalWrite(EMPTY_LED_PIN, LOW);
+    ledState = LOW;
+
+    // ३. टाकी पूर्ण भरल्यास (दोन्ही सेन्सर्स पाण्यात बुडाल्यास) -> Motor बंद (OFF)
+    if (lowSensor == LOW && highSensor == LOW) {
+      if (currentPumpState != 0) {
+        digitalWrite(RELAY_PIN, RELAY_OFF);
+        display.setSegments(MSG_CLEAR);
+        display.setSegments(MSG_OFF, 3, 1); // २, ३, ४ नंबर डिजिटवर 'oFF' दिसेल
+        Serial.println("Action: Tank Full - Pump Stopped (OFF)");
+        currentPumpState = 0;
+      }
+    }
   }
 
   delay(500); 
